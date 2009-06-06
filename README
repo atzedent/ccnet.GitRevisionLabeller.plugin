@@ -1,0 +1,21 @@
+Useage:
+
+<labeller type="gitRevisionLabeller">
+	<workingDirectory>..\Sources</workingDirectory>
+	<incrementOnFailure>False</incrementOnFailure>
+</labeller>
+
+The labeller emmits following variables:
+$(CCNetGitCommitHash)
+$(CCNetGitParentHash)
+$(CCNetGitTreeHash)
+$(CCNetBuildCycleNumber)
+$(CCNetGitRepositoryPath)
+
+It builds the $(CCNetLabel) as follows:
+$(CCNetBuildCycleNumber)-GitAbbreviatedCommitHash
+
+The GitAbbreviatedCommitHash is the first seven characters of the $(CCNetGitCommitHash) and is not emmited.
+
+
+
