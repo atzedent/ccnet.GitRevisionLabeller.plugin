@@ -1,7 +1,7 @@
 ﻿using ThoughtWorks.CruiseControl.Core;
 using ThoughtWorks.CruiseControl.Remote;
 
-namespace CcNet.Labeller
+namespace ccnet.GitRevisionLabeller.plugin
 {
     internal static class VersionAssembler
     {

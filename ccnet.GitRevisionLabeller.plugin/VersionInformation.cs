@@ -1,4 +1,4 @@
-﻿namespace CcNet.Labeller
+﻿namespace ccnet.GitRevisionLabeller.plugin
 {
     internal class VersionInformation
     {
