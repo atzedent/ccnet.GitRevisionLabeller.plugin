@@ -125,8 +125,8 @@ namespace ccnet.GitRevisionLabeller.plugin
         {
             var buffer = new ProcessArgumentBuilder();
 
+            // use the working dirs current branch for the hash rather than the origin to work with branches
             buffer.AddArgument("log");
-            buffer.AddArgument("origin/master"); // TODO what is it is a different branch
             buffer.AddArgument("--date-order");
             buffer.AddArgument("-1");
             buffer.AddArgument("--pretty=format:'%H%n%P%n%T'");
