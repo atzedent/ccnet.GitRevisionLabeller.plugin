@@ -1,11 +1,12 @@
 ﻿using System;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using Exortech.NetReflector;
 using ThoughtWorks.CruiseControl.Core;
 using ThoughtWorks.CruiseControl.Core.Util;
 
-namespace CcNet.Labeller
+namespace ccnet.GitRevisionLabeller.plugin
 {
     /// <summary>
     /// Generates the CCNet label. The resultant label is accessible from 
@@ -21,13 +22,19 @@ namespace CcNet.Labeller
     /// <li>CCNetGitTreeHash</li>
     /// <li>CCNetBuildCycleNumber</li>
     /// <li>CCNetGitRepositoryPath</li>
+    /// <li>CCNetGitLabel</li>
     /// </ul>
     /// </para>
+    /// The easiest way to access them in an exex element is via %CCNetGitCommitHash% for cmd or $env:CCNetGitCommitHash for powershell
     /// </remarks>
-    [ ReflectorType ( "gitRevisionLabeller" ) ]
+    [ReflectorType("gitRevisionLabeller")]
     public class GitRevisionLabeller : ILabeller
     {
-        #region Properties
+        public GitRevisionLabeller()
+        {
+            Major = 1;
+            Minor = 0;
+        }
 
         /// <summary>
         /// Gets or sets the path to the Git executable.
@@ -36,14 +43,14 @@ namespace CcNet.Labeller
         /// By default, the labeller checks the <c>PATH</c> environment variable.
         /// </remarks>
         /// <value>The executable.</value>
-        [ ReflectorProperty ( "executable", Required = false ) ]
+        [ReflectorProperty("executable", Required = false)]
         public string Executable = "git";
 
         /// <summary>
         /// Gets or sets the path to the Git working directory.
         /// </summary>
         /// <value>The working directory.</value>
-        [ ReflectorProperty ( "workingDirectory", Required = true ) ]
+        [ReflectorProperty("workingDirectory", Required = true)]
         public string WorkingDirectory;
 
         /// <summary>
@@ -51,20 +58,30 @@ namespace CcNet.Labeller
         /// increment on failed build.
         /// </summary>
         /// <value><c>true</c> if the build number should increment on failure; otherwise, <c>false</c>.</value>
-        [ ReflectorProperty ( "incrementOnFailure", Required = false ) ]
+        [ReflectorProperty("incrementOnFailure", Required = false)]
         public bool IncrementOnFailure { get; set; }
 
-        #endregion
+        /// <summary>
+        /// Gets or sets the major version.
+        /// </summary>
+        /// <value>The major version number.</value>
+        [ReflectorProperty("major", Required = false)]
+        public int Major { get; set; }
 
-        #region Methods
+        /// <summary>
+        /// Gets or sets the minor version.
+        /// </summary>
+        /// <value>The minor version number.</value>
+        [ReflectorProperty("minor", Required = false)]
+        public int Minor { get; set; }
 
         /// <summary>
         /// Runs the task, given the specified <see cref="IIntegrationResult"/>, in the specified <see cref="IProject"/>.
         /// </summary>
         /// <param name="result">The label for the current build.</param>
-        public void Run ( IIntegrationResult result )
+        public void Run(IIntegrationResult result)
         {
-            result.Label = Generate ( result );
+            result.Label = Generate(result);
         }
 
         /// <summary>
@@ -72,78 +89,92 @@ namespace CcNet.Labeller
         /// </summary>
         /// <param name="resultFromLastBuild">IntegrationResult from last build used to determine the next label.</param>
         /// <returns>The label for the current build.</returns>
-        public string Generate ( IIntegrationResult resultFromLastBuild )
+        public string Generate(IIntegrationResult resultFromLastBuild)
         {
-            var repositoryFullPath = GetRepositoryFullPath ( resultFromLastBuild );
+            var repositoryFullPath = GetRepositoryFullPath(resultFromLastBuild);
 
-            var versionInformation = VersionAssembler.BuildVersion ( GetOriginHash ( resultFromLastBuild ),
-                                                                     resultFromLastBuild,
-                                                                     IncrementOnFailure );
+            var versionInformation = VersionAssembler.BuildVersion(GetOriginHash(resultFromLastBuild),
+                                                                     GetRevisionCount(resultFromLastBuild),
+                                                                     Major, Minor, resultFromLastBuild,
+                                                                     IncrementOnFailure);
 
-            SetEnvironmentVariable ( "CCNetGitCommitHash", versionInformation.GitCommitHash );
-            SetEnvironmentVariable ( "CCNetGitParentHash", versionInformation.GitParentHash );
-            SetEnvironmentVariable ( "CCNetGitTreeHash", versionInformation.GitTreeHash );
-            SetEnvironmentVariable ( "CCNetBuildCycleNumber", versionInformation.BuildCycleNumber );
-            SetEnvironmentVariable ( "CCNetGitRepositoryPath", repositoryFullPath );
+            SetEnvironmentVariable("CCNetGitCommitHash", versionInformation.GitCommitHash);
+            SetEnvironmentVariable("CCNetGitParentHash", versionInformation.GitParentHash);
+            SetEnvironmentVariable("CCNetGitTreeHash", versionInformation.GitTreeHash);
+            SetEnvironmentVariable("CCNetBuildCycleNumber", versionInformation.BuildCycleNumber);
+            SetEnvironmentVariable("CCNetGitRepositoryPath", repositoryFullPath);
+            SetEnvironmentVariable("CCNetGitLabel", versionInformation.GitLabel);
+            SetEnvironmentVariable("CCNetGitCommitCount", versionInformation.GitCheckinCount);
 
-            return versionInformation.Label;
+            return versionInformation.AssemblySafeLabel;
         }
 
-        private static void SetEnvironmentVariable ( string name, int @value )
+        private static void SetEnvironmentVariable(string name, int @value)
         {
-            SetEnvironmentVariable ( name, @value.ToString ( ) );
+            SetEnvironmentVariable(name, @value.ToString(CultureInfo.InvariantCulture));
         }
 
-        private static void SetEnvironmentVariable ( string name, string @value )
+        private static void SetEnvironmentVariable(string name, string @value)
         {
-            Environment.SetEnvironmentVariable ( name, @value );
+            Environment.SetEnvironmentVariable(name, @value);
 
-            Log.Info ( string.Format ( "{0}: {1}", name, @value ) );
+            Log.Info(string.Format("{0}: {1}", name, @value));
         }
 
-        private string GetOriginHash ( IIntegrationResult result )
+        private string GetOriginHash(IIntegrationResult result)
         {
-            var buffer = new ProcessArgumentBuilder ( );
+            var buffer = new ProcessArgumentBuilder();
 
-            buffer.AddArgument ( "log" );
-            buffer.AddArgument ( "origin/master" );
-            buffer.AddArgument ( "--date-order" );
-            buffer.AddArgument ( "-1" );
-            buffer.AddArgument ( "--pretty=format:'%H%n%P%n%T'" );
+            // use the working dirs current branch for the hash rather than the origin to work with branches
+            buffer.AddArgument("log");
+            buffer.AddArgument("--date-order");
+            buffer.AddArgument("-1");
+            buffer.AddArgument("--pretty=format:'%H%n%P%n%T'");
 
             return
-                new ProcessExecutor ( ).Execute ( NewProcessInfo ( buffer.ToString ( ), BaseWorkingDirectory ( result ) ) )
-                    .StandardOutput.Trim ( ).Replace ( "'", "" );
+                new ProcessExecutor().Execute(NewProcessInfo(buffer.ToString(), BaseWorkingDirectory(result)))
+                    .StandardOutput.Trim().Replace("'", "");
         }
 
-        private string GetRepositoryFullPath ( IIntegrationResult result )
+        private int GetRevisionCount(IIntegrationResult result)
         {
-            var buffer = new ProcessArgumentBuilder ( );
+            var buffer = new ProcessArgumentBuilder();
 
-            buffer.AddArgument ( "remote" );
-            buffer.AddArgument ( "--verbose" );
+            buffer.Append("rev-list --count HEAD");
+
+            var output = new ProcessExecutor().Execute(NewProcessInfo(buffer.ToString(), BaseWorkingDirectory(result))).StandardOutput.Trim().Replace("'", "");
+            int rev;
+            int.TryParse(output, out rev);
+
+            return rev;
+        }
+
+        private string GetRepositoryFullPath(IIntegrationResult result)
+        {
+            var buffer = new ProcessArgumentBuilder();
+
+            buffer.AddArgument("remote");
+            buffer.AddArgument("--verbose");
 
             var pathInfo =
-                new ProcessExecutor ( ).Execute ( NewProcessInfo ( buffer.ToString ( ), BaseWorkingDirectory ( result ) ) )
-                    .StandardOutput.Trim ( ).Replace ( "origin", "" ).TrimStart ( );
+                new ProcessExecutor().Execute(NewProcessInfo(buffer.ToString(), BaseWorkingDirectory(result)))
+                    .StandardOutput.Trim().Replace("origin", "").TrimStart();
 
-            return Directory.Exists ( pathInfo ) ? Path.GetFullPath ( pathInfo ) : pathInfo;
+            return Directory.Exists(pathInfo) ? Path.GetFullPath(pathInfo) : pathInfo;
         }
 
-        private ProcessInfo NewProcessInfo ( string args, string dir )
+        private ProcessInfo NewProcessInfo(string args, string dir)
         {
-            Log.Info ( "Calling git " + args );
+            Log.Info("Calling git " + args);
 
-            var processInfo = new ProcessInfo ( Executable, args, dir ) { StreamEncoding = Encoding.UTF8 };
+            var processInfo = new ProcessInfo(Executable, args, dir) { StreamEncoding = Encoding.UTF8 };
 
             return processInfo;
         }
 
-        private string BaseWorkingDirectory ( IIntegrationResult result )
+        private string BaseWorkingDirectory(IIntegrationResult result)
         {
-            return result.BaseFromWorkingDirectory ( WorkingDirectory );
+            return result.BaseFromWorkingDirectory(WorkingDirectory);
         }
-
-        #endregion
     }
 }
